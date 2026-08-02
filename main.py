@@ -112,6 +112,7 @@ class CryptoNoteApp(QMainWindow):
         self.setWindowTitle(self.t('app_title'))
         self.resize(800, 600)
         self.center()
+        self.setAcceptDrops(True)
 
         self.central_widget = QWidget()
         self.layout = QVBoxLayout(self.central_widget)
@@ -247,6 +248,21 @@ class CryptoNoteApp(QMainWindow):
                     return
         event.accept()
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and url.toLocalFile().endswith('.cnot'):
+                    event.accept()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                if file_path.endswith('.cnot'):
+                    self.load_file(file_path)
+
     def center(self):
         frameGm = self.frameGeometry()
         screen = QApplication.primaryScreen().availableGeometry().center()
@@ -355,7 +371,7 @@ class CryptoNoteApp(QMainWindow):
 
     def save_file(self, tab=None):
         """Шифрує текст та зберігає у файл."""
-        if tab is None:
+        if not isinstance(tab, NoteTab):
             tab = self.get_current_tab()
         if not tab:
             return False
