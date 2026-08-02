@@ -35,6 +35,7 @@ class CryptoNoteApp(QMainWindow):
         try:
             with open(self.SETTINGS_FILE, 'w') as f:
                 json.dump({"is_dark_theme": self.is_dark_theme}, f)
+            os.chmod(self.SETTINGS_FILE, 0o600)
         except Exception:
             pass
 
@@ -129,6 +130,8 @@ class CryptoNoteApp(QMainWindow):
 
     def closeEvent(self, event):
         if self.maybe_save():
+            self.text_edit.clear()
+            self.current_password = None
             event.accept()
         else:
             event.ignore()
@@ -202,6 +205,28 @@ class CryptoNoteApp(QMainWindow):
         password = dialog.textValue()
         return password, bool(ok)
 
+    def get_new_password_with_confirmation(self, title, label):
+        """Запитує пароль двічі для підтвердження."""
+        while True:
+            password, ok = self.get_password(title, label)
+            if not ok:
+                return None, False
+            if not password:
+                QMessageBox.warning(self, "Увага", "Пароль не може бути порожнім!")
+                continue
+            if len(password) < 6:
+                QMessageBox.warning(self, "Увага", "Пароль повинен містити щонайменше 6 символів!")
+                continue
+                
+            confirm_password, ok2 = self.get_password(title, "Повторіть пароль для підтвердження:")
+            if not ok2:
+                return None, False
+                
+            if password == confirm_password:
+                return password, True
+            else:
+                QMessageBox.warning(self, "Помилка", "Паролі не збігаються! Спробуйте ще раз.")
+
     def save_file(self):
         """Шифрує текст та зберігає у файл."""
         if not self.current_file:
@@ -214,11 +239,8 @@ class CryptoNoteApp(QMainWindow):
                 return
 
         if not self.current_password:
-            password, ok = self.get_password("Збереження", "Введіть пароль для шифрування:")
+            password, ok = self.get_new_password_with_confirmation("Збереження", "Введіть пароль для шифрування:")
             if not ok:
-                return
-            if not password:
-                QMessageBox.warning(self, "Увага", "Пароль не може бути порожнім!")
                 return
             self.current_password = password
 
@@ -243,12 +265,8 @@ class CryptoNoteApp(QMainWindow):
 
     def change_password(self):
         """Змінює пароль для поточного файлу і відразу зберігає його."""
-        password, ok = self.get_password("Новий пароль", "Введіть новий пароль для шифрування:")
+        password, ok = self.get_new_password_with_confirmation("Новий пароль", "Введіть новий пароль для шифрування:")
         if ok:
-            if not password:
-                QMessageBox.warning(self, "Увага", "Пароль не може бути порожнім!")
-                return
-            
             self.current_password = password
             
             if self.current_file:
