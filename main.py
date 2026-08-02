@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet, InvalidToken
 
 TRANSLATIONS = {
-    'app_title': {'uk': "Шифрований Блокнот v1.2.0", 'en': "CryptoNote v1.2.0"},
+    'app_title': {'uk': "Шифрований Блокнот v1.3.0", 'en': "CryptoNote v1.3.0"},
     'btn_new': {'uk': "Створити", 'en': "New"},
     'btn_open': {'uk': "Відкрити", 'en': "Open"},
     'btn_save': {'uk': "Зберегти", 'en': "Save"},
