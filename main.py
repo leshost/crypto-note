@@ -4,7 +4,7 @@ import json
 import base64
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QPlainTextEdit, 
                              QFileDialog, QInputDialog, QMessageBox, QLineEdit,
-                             QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStyle)
+                             QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStyle, QTabWidget)
 from PyQt6.QtGui import QAction, QFont, QPalette, QColor, QTextCursor
 from PyQt6.QtCore import Qt
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -50,13 +50,25 @@ TRANSLATIONS = {
     'msg_open_error': {'uk': "Помилка при відкритті:\n{}", 'en': "Error while opening:\n{}"},
 }
 
+class NoteTab(QWidget):
+    def __init__(self, font_size, parent=None):
+        super().__init__(parent)
+        self.current_file = None
+        self.current_password = None
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.text_edit = QPlainTextEdit()
+        font = QFont("Monospace", font_size)
+        self.text_edit.setFont(font)
+        self.layout.addWidget(self.text_edit)
+
 class CryptoNoteApp(QMainWindow):
     SETTINGS_FILE = os.path.expanduser("~/.cryptonote_settings.json")
 
     def __init__(self):
         super().__init__()
-        self.current_file = None
-        self.current_password = None
         self.is_dark_theme = True
         self.lang = 'uk'
         self.last_dir = ""
@@ -149,16 +161,20 @@ class CryptoNoteApp(QMainWindow):
         self.btn_layout.addStretch()
         self.layout.addLayout(self.btn_layout)
 
-        # Текстовий редактор (plain text)
-        self.text_edit = QPlainTextEdit()
-        font = QFont("Monospace", self.font_size)
-        self.text_edit.setFont(font)
-        self.text_edit.document().modificationChanged.connect(self.update_title)
+        # Вкладки (Tabs)
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self.update_title)
         
-        self.layout.addWidget(self.text_edit)
+        self.layout.addWidget(self.tabs)
         self.setCentralWidget(self.central_widget)
-        self.text_edit.setFocus()
+        
+        self.new_file() # create first tab
         self.update_title()
+
+    def get_current_tab(self):
+        return self.tabs.currentWidget()
 
     def update_ui_texts(self):
         """Оновлює тексти всіх елементів інтерфейсу."""
@@ -177,19 +193,35 @@ class CryptoNoteApp(QMainWindow):
         self.save_settings()
         self.update_ui_texts()
 
-    def update_title(self):
+    def update_title(self, index=None):
         title = self.t('app_title') + " - "
-        if self.current_file:
-            title += os.path.basename(self.current_file)
+        
+        tab = self.get_current_tab()
+        if not tab:
+            self.setWindowTitle(self.t('app_title'))
+            return
+            
+        # Оновлюємо заголовок поточної вкладки
+        for i in range(self.tabs.count()):
+            t = self.tabs.widget(i)
+            tab_title = os.path.basename(t.current_file) if t.current_file else self.t('title_new_file')
+            if t.text_edit.document().isModified():
+                tab_title += " *"
+            self.tabs.setTabText(i, tab_title)
+            
+        if tab.current_file:
+            title += os.path.basename(tab.current_file)
         else:
             title += self.t('title_new_file')
             
-        if self.text_edit.document().isModified():
+        if tab.text_edit.document().isModified():
             title += " *"
         self.setWindowTitle(title)
 
-    def maybe_save(self):
-        if not self.text_edit.document().isModified():
+    def maybe_save(self, tab=None):
+        if tab is None:
+            tab = self.get_current_tab()
+        if not tab or not tab.text_edit.document().isModified():
             return True
             
         reply = QMessageBox.question(
@@ -199,20 +231,21 @@ class CryptoNoteApp(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.save_file()
-            return not self.text_edit.document().isModified()
+            return self.save_file(tab)
         elif reply == QMessageBox.StandardButton.No:
             return True
         else:
             return False
 
     def closeEvent(self, event):
-        if self.maybe_save():
-            self.text_edit.clear()
-            self.current_password = None
-            event.accept()
-        else:
-            event.ignore()
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if tab.text_edit.document().isModified():
+                self.tabs.setCurrentIndex(i)
+                if not self.maybe_save(tab):
+                    event.ignore()
+                    return
+        event.accept()
 
     def center(self):
         frameGm = self.frameGeometry()
@@ -222,17 +255,21 @@ class CryptoNoteApp(QMainWindow):
 
     def zoom_in(self):
         self.font_size += 2
-        font = self.text_edit.font()
-        font.setPointSize(self.font_size)
-        self.text_edit.setFont(font)
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            font = tab.text_edit.font()
+            font.setPointSize(self.font_size)
+            tab.text_edit.setFont(font)
         self.save_settings()
 
     def zoom_out(self):
         if self.font_size > 6:
             self.font_size -= 2
-            font = self.text_edit.font()
-            font.setPointSize(self.font_size)
-            self.text_edit.setFont(font)
+            for i in range(self.tabs.count()):
+                tab = self.tabs.widget(i)
+                font = tab.text_edit.font()
+                font.setPointSize(self.font_size)
+                tab.text_edit.setFont(font)
             self.save_settings()
 
     def toggle_theme(self):
@@ -247,15 +284,23 @@ class CryptoNoteApp(QMainWindow):
             self.is_dark_theme = True
         self.save_settings()
 
+    def close_tab(self, index):
+        tab = self.tabs.widget(index)
+        if tab.text_edit.document().isModified():
+            self.tabs.setCurrentIndex(index)
+            if not self.maybe_save(tab):
+                return
+        self.tabs.removeTab(index)
+        tab.deleteLater()
+        if self.tabs.count() == 0:
+            self.new_file()
+
     def new_file(self):
-        if not self.maybe_save():
-            return
-        self.text_edit.clear()
-        self.current_file = None
-        self.current_password = None
-        self.text_edit.document().setModified(False)
-        self.text_edit.setFocus()
-        self.update_title()
+        tab = NoteTab(self.font_size)
+        tab.text_edit.document().modificationChanged.connect(self.update_title)
+        index = self.tabs.addTab(tab, self.t('title_new_file'))
+        self.tabs.setCurrentIndex(index)
+        tab.text_edit.setFocus()
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
         """Генерує ключ з пароля за допомогою PBKDF2."""
@@ -308,41 +353,46 @@ class CryptoNoteApp(QMainWindow):
             else:
                 QMessageBox.warning(self, self.t('msg_error'), self.t('msg_pwd_mismatch'))
 
-    def save_file(self):
+    def save_file(self, tab=None):
         """Шифрує текст та зберігає у файл."""
-        if not self.current_file:
+        if tab is None:
+            tab = self.get_current_tab()
+        if not tab:
+            return False
+
+        if not tab.current_file:
             file_name, _ = QFileDialog.getSaveFileName(
                 self, self.t('btn_save'), self.last_dir, self.t('file_filter')
             )
             if file_name:
                 if not file_name.endswith('.cnot'):
                     file_name += '.cnot'
-                self.current_file = file_name
-                self.last_dir = os.path.dirname(self.current_file)
+                tab.current_file = file_name
+                self.last_dir = os.path.dirname(tab.current_file)
                 self.save_settings()
             else:
-                return
+                return False
 
-        if not self.current_password:
+        if not tab.current_password:
             password, ok = self.get_new_password_with_confirmation(self.t('msg_save_title'), self.t('msg_enter_pwd'))
             if not ok:
-                return
-            self.current_password = password
+                return False
+            tab.current_password = password
 
         try:
             # Генеруємо сіль для шифрування
             salt = os.urandom(16)
-            key = self.derive_key(self.current_password, salt)
+            key = self.derive_key(tab.current_password, salt)
             fernet = Fernet(key)
             
             # Текст для збереження
-            text = self.text_edit.toPlainText().encode('utf-8')
+            text = tab.text_edit.toPlainText().encode('utf-8')
             encrypted_text = fernet.encrypt(text)
             
             # Записуємо у файл: 16 байт солі + зашифрований текст
-            with open(self.current_file, 'wb') as f:
+            with open(tab.current_file, 'wb') as f:
                 f.write(salt + encrypted_text)
-            self.text_edit.document().setModified(False)
+            tab.text_edit.document().setModified(False)
             self.update_title()
             # Зберігаємо "тихо", без набридливого повідомлення про успіх
         except Exception as e:
@@ -350,22 +400,23 @@ class CryptoNoteApp(QMainWindow):
 
     def change_password(self):
         """Змінює пароль для поточного файлу і відразу зберігає його."""
+        tab = self.get_current_tab()
+        if not tab: return
+        
         password, ok = self.get_new_password_with_confirmation(self.t('msg_new_pwd_title'), self.t('msg_enter_new_pwd'))
         if ok:
-            self.current_password = password
+            tab.current_password = password
             
-            if self.current_file:
-                self.save_file()
-                QMessageBox.information(self, self.t('msg_success'), self.t('msg_pwd_changed_saved'))
+            if tab.current_file:
+                if self.save_file(tab):
+                    QMessageBox.information(self, self.t('msg_success'), self.t('msg_pwd_changed_saved'))
             else:
-                self.text_edit.document().setModified(True)
+                tab.text_edit.document().setModified(True)
                 self.update_title()
                 QMessageBox.information(self, self.t('msg_success'), self.t('msg_pwd_changed_warn'))
 
     def open_file(self):
         """Відкриває діалог вибору файлу."""
-        if not self.maybe_save():
-            return
         file_name, _ = QFileDialog.getOpenFileName(
             self, self.t('msg_open_file'), self.last_dir, self.t('file_filter')
         )
@@ -375,7 +426,14 @@ class CryptoNoteApp(QMainWindow):
             self.load_file(file_name)
 
     def load_file(self, file_name):
-        """Запитує пароль та розшифровує текст із вказаного файлу."""
+        """Запитує пароль та розшифровує текст із вказаного файлу у новій вкладці."""
+        # Перевірка чи файл вже відкритий
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if tab.current_file == file_name:
+                self.tabs.setCurrentIndex(i)
+                return
+
         attempts = 3
         while attempts > 0:
             label = self.t('msg_pwd_for_file', os.path.basename(file_name))
@@ -408,17 +466,29 @@ class CryptoNoteApp(QMainWindow):
                 # Розшифровуємо
                 decrypted_text = fernet.decrypt(encrypted_text).decode('utf-8')
                 
-                self.current_password = password
-                
-                self.text_edit.setPlainText(decrypted_text)
-                self.text_edit.document().setModified(False)
-                self.current_file = file_name
+                # Створюємо вкладку якщо все успішно
+                tab = NoteTab(self.font_size)
+                tab.current_password = password
+                tab.text_edit.setPlainText(decrypted_text)
+                tab.text_edit.document().setModified(False)
+                tab.current_file = file_name
+                tab.text_edit.document().modificationChanged.connect(self.update_title)
                 
                 # Переміщуємо курсор в кінець тексту
-                cursor = self.text_edit.textCursor()
+                cursor = tab.text_edit.textCursor()
                 cursor.movePosition(QTextCursor.MoveOperation.End)
-                self.text_edit.setTextCursor(cursor)
-                self.text_edit.setFocus()
+                tab.text_edit.setTextCursor(cursor)
+                
+                # Якщо поточна вкладка - це новий порожній файл, замінюємо її
+                current_tab = self.get_current_tab()
+                if current_tab and not current_tab.current_file and not current_tab.text_edit.document().isModified():
+                    index = self.tabs.currentIndex()
+                    self.tabs.removeTab(index)
+                    current_tab.deleteLater()
+                    
+                index = self.tabs.addTab(tab, os.path.basename(file_name))
+                self.tabs.setCurrentIndex(index)
+                tab.text_edit.setFocus()
                 
                 self.update_title()
                 return # Успішне розшифрування, виходимо
