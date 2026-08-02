@@ -59,6 +59,8 @@ class CryptoNoteApp(QMainWindow):
         self.current_password = None
         self.is_dark_theme = True
         self.lang = 'uk'
+        self.last_dir = ""
+        self.font_size = 14
         self.load_settings()
         self.initUI()
 
@@ -76,13 +78,20 @@ class CryptoNoteApp(QMainWindow):
                     data = json.load(f)
                     self.is_dark_theme = data.get("is_dark_theme", True)
                     self.lang = data.get("lang", "uk")
+                    self.last_dir = data.get("last_dir", "")
+                    self.font_size = data.get("font_size", 14)
             except Exception:
                 pass
                 
     def save_settings(self):
         try:
             with open(self.SETTINGS_FILE, 'w') as f:
-                json.dump({"is_dark_theme": self.is_dark_theme, "lang": self.lang}, f)
+                json.dump({
+                    "is_dark_theme": self.is_dark_theme, 
+                    "lang": self.lang, 
+                    "last_dir": self.last_dir,
+                    "font_size": self.font_size
+                }, f)
             os.chmod(self.SETTINGS_FILE, 0o600)
         except Exception:
             pass
@@ -142,7 +151,7 @@ class CryptoNoteApp(QMainWindow):
 
         # Текстовий редактор (plain text)
         self.text_edit = QPlainTextEdit()
-        font = QFont("Monospace", 14)
+        font = QFont("Monospace", self.font_size)
         self.text_edit.setFont(font)
         self.text_edit.document().modificationChanged.connect(self.update_title)
         
@@ -212,16 +221,19 @@ class CryptoNoteApp(QMainWindow):
         self.move(frameGm.topLeft())
 
     def zoom_in(self):
+        self.font_size += 2
         font = self.text_edit.font()
-        font.setPointSize(font.pointSize() + 2)
+        font.setPointSize(self.font_size)
         self.text_edit.setFont(font)
+        self.save_settings()
 
     def zoom_out(self):
-        font = self.text_edit.font()
-        new_size = font.pointSize() - 2
-        if new_size > 6:
-            font.setPointSize(new_size)
+        if self.font_size > 6:
+            self.font_size -= 2
+            font = self.text_edit.font()
+            font.setPointSize(self.font_size)
             self.text_edit.setFont(font)
+            self.save_settings()
 
     def toggle_theme(self):
         app = QApplication.instance()
@@ -300,12 +312,14 @@ class CryptoNoteApp(QMainWindow):
         """Шифрує текст та зберігає у файл."""
         if not self.current_file:
             file_name, _ = QFileDialog.getSaveFileName(
-                self, self.t('btn_save'), "", self.t('file_filter')
+                self, self.t('btn_save'), self.last_dir, self.t('file_filter')
             )
             if file_name:
                 if not file_name.endswith('.cnot'):
                     file_name += '.cnot'
                 self.current_file = file_name
+                self.last_dir = os.path.dirname(self.current_file)
+                self.save_settings()
             else:
                 return
 
@@ -353,9 +367,11 @@ class CryptoNoteApp(QMainWindow):
         if not self.maybe_save():
             return
         file_name, _ = QFileDialog.getOpenFileName(
-            self, self.t('msg_open_file'), "", self.t('file_filter')
+            self, self.t('msg_open_file'), self.last_dir, self.t('file_filter')
         )
         if file_name:
+            self.last_dir = os.path.dirname(file_name)
+            self.save_settings()
             self.load_file(file_name)
 
     def load_file(self, file_name):
