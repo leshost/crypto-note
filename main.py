@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import base64
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QPlainTextEdit, 
                              QFileDialog, QInputDialog, QMessageBox, QLineEdit,
@@ -11,11 +12,31 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet, InvalidToken
 
 class CryptoNoteApp(QMainWindow):
+    SETTINGS_FILE = os.path.expanduser("~/.cryptonote_settings.json")
+
     def __init__(self):
         super().__init__()
-        self.initUI()
         self.current_file = None
         self.current_password = None
+        self.is_dark_theme = True
+        self.load_settings()
+        self.initUI()
+
+    def load_settings(self):
+        if os.path.exists(self.SETTINGS_FILE):
+            try:
+                with open(self.SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.is_dark_theme = data.get("is_dark_theme", True)
+            except Exception:
+                pass
+                
+    def save_settings(self):
+        try:
+            with open(self.SETTINGS_FILE, 'w') as f:
+                json.dump({"is_dark_theme": self.is_dark_theme}, f)
+        except Exception:
+            pass
 
     def initUI(self):
         self.setWindowTitle("Шифрований Блокнот")
@@ -41,17 +62,28 @@ class CryptoNoteApp(QMainWindow):
         self.btn_save.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.btn_save.clicked.connect(self.save_file)
 
+        self.btn_change_pwd = QPushButton("Змінити пароль")
+        self.btn_change_pwd.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.btn_change_pwd.clicked.connect(self.change_password)
+
         self.btn_plus = QPushButton("Текст +")
         self.btn_minus = QPushButton("Текст -")
         self.btn_plus.clicked.connect(self.zoom_in)
         self.btn_minus.clicked.connect(self.zoom_out)
         
+        self.btn_theme = QPushButton("Тема")
+        self.btn_theme.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DesktopIcon))
+        self.btn_theme.clicked.connect(self.toggle_theme)
+        
         self.btn_layout.addWidget(self.btn_new)
         self.btn_layout.addWidget(self.btn_open)
         self.btn_layout.addWidget(self.btn_save)
+        self.btn_layout.addWidget(self.btn_change_pwd)
         self.btn_layout.addSpacing(20) # Відступ між групами кнопок
         self.btn_layout.addWidget(self.btn_plus)
         self.btn_layout.addWidget(self.btn_minus)
+        self.btn_layout.addSpacing(20)
+        self.btn_layout.addWidget(self.btn_theme)
         self.btn_layout.addStretch()
         self.layout.addLayout(self.btn_layout)
 
@@ -59,9 +91,46 @@ class CryptoNoteApp(QMainWindow):
         self.text_edit = QPlainTextEdit()
         font = QFont("Monospace", 14)
         self.text_edit.setFont(font)
+        self.text_edit.document().modificationChanged.connect(self.update_title)
         
         self.layout.addWidget(self.text_edit)
         self.setCentralWidget(self.central_widget)
+        self.update_title()
+
+    def update_title(self):
+        title = "Шифрований Блокнот - "
+        if self.current_file:
+            title += os.path.basename(self.current_file)
+        else:
+            title += "Новий файл"
+            
+        if self.text_edit.document().isModified():
+            title += " *"
+        self.setWindowTitle(title)
+
+    def maybe_save(self):
+        if not self.text_edit.document().isModified():
+            return True
+            
+        reply = QMessageBox.question(
+            self, "Зберегти зміни?", 
+            "У вас є незбережені зміни. Бажаєте зберегти їх?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.save_file()
+            return not self.text_edit.document().isModified()
+        elif reply == QMessageBox.StandardButton.No:
+            return True
+        else:
+            return False
+
+    def closeEvent(self, event):
+        if self.maybe_save():
+            event.accept()
+        else:
+            event.ignore()
 
     def center(self):
         frameGm = self.frameGeometry()
@@ -81,11 +150,26 @@ class CryptoNoteApp(QMainWindow):
             font.setPointSize(new_size)
             self.text_edit.setFont(font)
 
+    def toggle_theme(self):
+        app = QApplication.instance()
+        if self.is_dark_theme:
+            # Примусово вмикаємо світлу тему
+            apply_light_theme(app)
+            self.is_dark_theme = False
+        else:
+            # Примусово вмикаємо темну тему
+            apply_dark_theme(app)
+            self.is_dark_theme = True
+        self.save_settings()
+
     def new_file(self):
+        if not self.maybe_save():
+            return
         self.text_edit.clear()
         self.current_file = None
         self.current_password = None
-        self.setWindowTitle("Шифрований Блокнот - Новий файл")
+        self.text_edit.document().setModified(False)
+        self.update_title()
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
         """Генерує ключ з пароля за допомогою PBKDF2."""
@@ -149,14 +233,34 @@ class CryptoNoteApp(QMainWindow):
             # Записуємо у файл: 16 байт солі + зашифрований текст
             with open(self.current_file, 'wb') as f:
                 f.write(salt + encrypted_text)
-            
-            self.setWindowTitle(f"Шифрований Блокнот - {self.current_file}")
+            self.text_edit.document().setModified(False)
+            self.update_title()
             # Зберігаємо "тихо", без набридливого повідомлення про успіх
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Помилка при збереженні:\n{str(e)}")
 
+    def change_password(self):
+        """Змінює пароль для поточного файлу і відразу зберігає його."""
+        password, ok = self.get_password("Новий пароль", "Введіть новий пароль для шифрування:")
+        if ok:
+            if not password:
+                QMessageBox.warning(self, "Увага", "Пароль не може бути порожнім!")
+                return
+            
+            self.current_password = password
+            
+            if self.current_file:
+                self.save_file()
+                QMessageBox.information(self, "Успіх", "Пароль змінено та файл успішно перезаписано!")
+            else:
+                self.text_edit.document().setModified(True)
+                self.update_title()
+                QMessageBox.information(self, "Успіх", "Пароль змінено. Не забудьте зберегти файл!")
+
     def open_file(self):
         """Відкриває діалог вибору файлу."""
+        if not self.maybe_save():
+            return
         file_name, _ = QFileDialog.getOpenFileName(
             self, "Відкрити файл", "", "CryptoNote Files (*.cnot);;All Files (*)"
         )
@@ -200,8 +304,9 @@ class CryptoNoteApp(QMainWindow):
                 self.current_password = password
                 
                 self.text_edit.setPlainText(decrypted_text)
+                self.text_edit.document().setModified(False)
                 self.current_file = file_name
-                self.setWindowTitle(f"Шифрований Блокнот - {self.current_file}")
+                self.update_title()
                 return # Успішне розшифрування, виходимо
 
             except InvalidToken:
@@ -233,13 +338,36 @@ def apply_dark_theme(app):
     dark_palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
     app.setPalette(dark_palette)
 
+def apply_light_theme(app):
+    """Застосовує світлу тему примусово, ігноруючи системні налаштування."""
+    app.setStyle("Fusion")
+    light_palette = QPalette()
+    light_palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
+    light_palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.black)
+    light_palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.white)
+    light_palette.setColor(QPalette.ColorRole.AlternateBase, QColor(240, 240, 240))
+    light_palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
+    light_palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.black)
+    light_palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.black)
+    light_palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    light_palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.black)
+    light_palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+    light_palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+    light_palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+    light_palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
+    app.setPalette(light_palette)
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Додаємо темну тему для сучасного вигляду
-    apply_dark_theme(app)
-    
     window = CryptoNoteApp()
+    
+    # Застосовуємо збережену тему
+    if window.is_dark_theme:
+        apply_dark_theme(app)
+    else:
+        apply_light_theme(app)
+        
     window.show()
     
     # Відкриваємо файл, якщо він був переданий як аргумент командного рядка
