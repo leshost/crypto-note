@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=CryptoNote
+Comment=Шифрований Блокнот
+Exec=python3 /home/dell/Dropbox/sites/crypto-note/main.py %f
+Icon=accessories-text-editor
+Terminal=false
+Type=Application
+Categories=Utility;TextEditor;
