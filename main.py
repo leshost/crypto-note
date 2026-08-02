@@ -5,7 +5,7 @@ import base64
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QPlainTextEdit, 
                              QFileDialog, QInputDialog, QMessageBox, QLineEdit,
                              QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStyle)
-from PyQt6.QtGui import QAction, QFont, QPalette, QColor
+from PyQt6.QtGui import QAction, QFont, QPalette, QColor, QTextCursor
 from PyQt6.QtCore import Qt
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -95,6 +95,7 @@ class CryptoNoteApp(QMainWindow):
         
         self.layout.addWidget(self.text_edit)
         self.setCentralWidget(self.central_widget)
+        self.text_edit.setFocus()
         self.update_title()
 
     def update_title(self):
@@ -169,6 +170,7 @@ class CryptoNoteApp(QMainWindow):
         self.current_file = None
         self.current_password = None
         self.text_edit.document().setModified(False)
+        self.text_edit.setFocus()
         self.update_title()
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
@@ -306,6 +308,13 @@ class CryptoNoteApp(QMainWindow):
                 self.text_edit.setPlainText(decrypted_text)
                 self.text_edit.document().setModified(False)
                 self.current_file = file_name
+                
+                # Переміщуємо курсор в кінець тексту
+                cursor = self.text_edit.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                self.text_edit.setTextCursor(cursor)
+                self.text_edit.setFocus()
+                
                 self.update_title()
                 return # Успішне розшифрування, виходимо
 
