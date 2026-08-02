@@ -234,6 +234,8 @@ class CryptoNoteApp(QMainWindow):
                 self, "Зберегти файл", "", "CryptoNote Files (*.cnot);;All Files (*)"
             )
             if file_name:
+                if not file_name.endswith('.cnot'):
+                    file_name += '.cnot'
                 self.current_file = file_name
             else:
                 return
