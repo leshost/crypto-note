@@ -39,7 +39,7 @@ class CryptoNoteApp(QMainWindow):
             pass
 
     def initUI(self):
-        self.setWindowTitle("Шифрований Блокнот")
+        self.setWindowTitle("Шифрований Блокнот v1.0.0")
         self.resize(800, 600)
         self.center()
 
@@ -98,7 +98,7 @@ class CryptoNoteApp(QMainWindow):
         self.update_title()
 
     def update_title(self):
-        title = "Шифрований Блокнот - "
+        title = "Шифрований Блокнот v1.0.0 - "
         if self.current_file:
             title += os.path.basename(self.current_file)
         else:
